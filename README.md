@@ -1,5 +1,6 @@
 ##### Version 0.1 - It works, but still is pretty ugly in some senses #####
 DISCLAIMER 1: Paizo has a very generous Community Use Policy: https://paizo.com/licenses/communityuse - Unfortunately this policy only covers use of published material, etc. and so I am not 100% sure it applies here. I am not using or distributing any material published by them. I hope, the policy allows for automatic scraping of the website as well. If they don't want this and inform me of that, I will of course take down the code. I AM sure that I fulfill all requirements for the CUP, so unless the principal behind the scraper violates some other policy, this should be allowed to exist :)
+
 DISCLAIMER 2: The tool was written mostly for the german community and by a german, so comments are german and it uses semicolons as delimiters in the created csv-files
 
 This is a simple PowerShell tool that uses Selenium and the Edge Browser to open the Paizo.com website and get your Organized Play Characters as well as session history from there. The results are then displayed on screen, using Out-Gridview, as well as saved into CSV files, which you can then import into your favorite spreadsheet tool to use.
