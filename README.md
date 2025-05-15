@@ -12,12 +12,10 @@ I am using Read-HtmlTable by iRon 7: https://github.com/iRon7/Read-HtmlTable/tre
 Another part of the script was copied from this page: https://administrator.de/tutorial/powershell-einfuehrung-in-die-webbrowser-automation-mit-selenium-webdriver-1197173647.html - This will likely be changed significantly when overhauling the code
 
 Known Issues:
-- The script only functions reliably when the opened browser stays open, active and maximized during the parsing process. So please be patient for the minute or so this takes since I don't know if I can find a way around that
-- Currently the script need to open a dummy browser (which is immediately closed again) to load the assemblies. This will need to be changed by moving functions around
+- The script only functions reliably when the opened browser stays open, active and maximized during the parsing process. So please be patient for the minute or so this takes since I don't know if I can find a way around that.
+- The script has to be run from VS Code or PowerShell ISE to function properly. Get-Credential doesn't work in terminal mode.
 
 Planned future improvements:
-- Change the csv-Delimiter to use local culture instead of defaulting to semicolon
-- Change all comments / variable names / etc. to english
 - Include some kind of interactive menu to let you select one of your characters and get a list of sessions / scenarios that character should have chronicles for
 - Include functionality to list all scenarios you have played, with a differentiation between played and GMed
   - maybe even include "which ones am I missing"
