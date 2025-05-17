@@ -1,5 +1,25 @@
 function PaizoParser {
-    $cred = Get-Credential -Message "Please enter your Paizo.com email and password"
+    #If you want to use the unrefined Session Data, set this to $false
+    $EnrichSessions = $true
+    
+    <#
+    If you have your credentials in a file, you can load them here.
+    To create such a file, run the line which asks for credentials once (or create the $cred object in any other way),
+    chose a location for the save file and then run the following code:
+    $cred | Export-Clixml <PathAndFilenameToSaveto>
+    The password will be saved as a SecureString in that file.
+    That means it is only decryptable when running the script in the same account used to create it.
+    THIS IS NOT 100% SECURE! USE AT YOUR OWN RISK!
+    #>
+    $credFile = $null
+        
+    if ($null -ne $credFile -and (Test-Path $credFile)) {
+        $cred = Import-Clixml $credFile
+    }
+
+    if ($null -eq $cred) {
+        $cred = Get-Credential -Message "Please enter your Paizo.com email and password"
+    }
 
     $username = $cred.UserName
     $password = $cred.GetNetworkCredential().Password
@@ -14,16 +34,16 @@ function PaizoParser {
     $maximized.AddArgument("start-maximized")
 
     #Start controlled Edge Browser
-    $browser = Create-Browser Edge -options $maximized
+    $Global:Browser = Create-Browser Edge -options $maximized
     
     #Navigate to the Paizo Homepage
-    $browser.Navigate().GotoURL($sessionsURL)
+    $Global:Browser.Navigate().GotoURL($sessionsURL)
 
     #Create Actions object to enter username and password and click the login button
-    $actions = [OpenQA.Selenium.Interactions.Actions]::new($browser)
-    $userfield = $browser.FindElement([OpenQA.Selenium.By]::Name('e'))
+    $actions = [OpenQA.Selenium.Interactions.Actions]::new($Global:Browser)
+    $userfield = $Global:Browser.FindElement([OpenQA.Selenium.By]::Name('e'))
     $actions.SendKeys($userfield,$username)
-    $pwfield = $browser.FindElement([OpenQA.Selenium.By]::Name('zzz'))
+    $pwfield = $Global:Browser.FindElement([OpenQA.Selenium.By]::Name('zzz'))
     $actions.SendKeys($pwfield,$password)
     $actions.SendKeys($pwfield,[OpenQA.Selenium.Keys]::Enter)
     $actions.Build()
@@ -32,63 +52,70 @@ function PaizoParser {
     $actions.Perform()
 
     #Wait until the browser is done loading by checking if the html element with the ID "tabs" exists (Timeout: 20 seconds)
-    $browser.Manage().Timeouts().ImplicitWait = New-TimeSpan -Seconds 20
-    $null = $browser.FindElement([OpenQA.Selenium.By]::Id('tabs'))
+    $Global:Browser.Manage().Timeouts().ImplicitWait = New-TimeSpan -Seconds 20
+    $null = $Global:Browser.FindElement([OpenQA.Selenium.By]::Id('tabs'))
 
     #Since we are sent back to the basic Organized Play anyways, start by parsing the registered characters
     #Find the area containing information about the characters
-    $charPage = $browser.FindElement([OpenQA.Selenium.By]::className('tp-content'))
+    $charPage = $Global:Browser.FindElement([OpenQA.Selenium.By]::className('tp-content'))
     $html = $charPage.getattribute('innerHTML')
     
     #Add headers for the table, since it doesn't contain any
-    $characters = $html -replace '(<table border="0" cellpadding="6" cellspacing="0" width="100%">)','$1<thead><tr><th>CharacterID</th><th>System</th><th>Name</th><th>Reputation</th><th>EditButton></th><th>DeleteButton</th>' | Read-HtmlTable
-    $characters = $characters | ? {$_.CharacterID -ne "Show Sessions"} | Select CharacterID, System, Name, Reputation
+    $Global:Characters = $html -replace '(<table border="0" cellpadding="6" cellspacing="0" width="100%">)','$1<thead><tr><th>CharacterID</th><th>System</th><th>Name</th><th>Reputation</th><th>EditButton></th><th>DeleteButton</th>' | Read-HtmlTable
+    $Global:Characters = $Global:Characters | ? {$_.CharacterID -ne "Show Sessions"} | Select CharacterID, System, Name, Reputation
     #change reputation from multiline to comma seperated list
-    $characters | % {$_.Reputation = $_.Reputation -replace "`r`n",", "}
+    $Global:Characters | % {$_.Reputation = $_.Reputation -replace "`r`n",", "}
 
     #Navigate to the site which contains the session list
-    $browser.Navigate().GotoURL($sessionsURL)
+    $Global:Browser.Navigate().GotoURL($sessionsURL)
 
     #find the actual list of sessions
-    $results = $browser.FindElement([OpenQA.Selenium.By]::Id('results'))
+    $results = $Global:Browser.FindElement([OpenQA.Selenium.By]::Id('results'))
     $html = $results.getattribute('innerHTML')
 
-    #parse the table, while removing the shown time, which might by things like "today" and replacing them with the actual date, which is included in the html source code
-    $foundSessions = $html -replace '<time datetime="(\d{4}-\d{2}-\d{2}).*<\/time>','$1' | Read-HtmlTable -TableIndex 1 | ? {$_.Session -ne $null -and $_.Session -ne "Show Seats"}
+    if ($enrichSessions) {
+        $SessionData = Parse-SessionData -SessionTable $html
+    } else {
+        #parse the table, while removing the shown time, which might by things like "today" and replacing them with the actual date, which is included in the html source code
+        $foundSessions = $html -replace '<time datetime="(\d{4}-\d{2}-\d{2}).*<\/time>','$1' | Read-HtmlTable -TableIndex 1 | ? {$_.Session -ne $null -and $_.Session -ne "Show Seats"}
+    }
 
     #Set timeout to 0 for faster detection of the last page
-    $browser.Manage().Timeouts().ImplicitWait = 0
+    $Global:Browser.Manage().Timeouts().ImplicitWait = 0
 
     #find out if this was the last (and only) page of sessions
     $ErrorActionPreference = "Stop"
     try {
-        $browser.FindElement([OpenQA.Selenium.By]::LinkText("next >"))
+        $Global:Browser.FindElement([OpenQA.Selenium.By]::LinkText("next >"))
         $nextIsLink = $true
     } catch {
         $nextIsLink = $false
     }
-
-
+    
     #loop through all other session list pages by clicking "next >" every time
     while ($nextIsLink) {
-        $browser.FindElement([OpenQA.Selenium.By]::LinkText("next >")).click()
+        $Global:Browser.FindElement([OpenQA.Selenium.By]::LinkText("next >")).click()
 
         #Set timeout to 20 again to wait for the page to load
-        $browser.Manage().Timeouts().ImplicitWait = New-TimeSpan -Seconds 20
-        $results = $browser.FindElement([OpenQA.Selenium.By]::Id('results'))
+        $Global:Browser.Manage().Timeouts().ImplicitWait = New-TimeSpan -Seconds 20
+        $results = $Global:Browser.FindElement([OpenQA.Selenium.By]::Id('results'))
 
         #Wait for a moment after loading. Without that, the data sometime is from the previous page
         Start-Sleep -Seconds 3
-        $results = $browser.FindElement([OpenQA.Selenium.By]::Id('results'))
+        $results = $Global:Browser.FindElement([OpenQA.Selenium.By]::Id('results'))
         $html = $results.getattribute('innerHTML')
 
-        #parse the table (see above)
-        $foundSessions += $html -replace '<time datetime="(\d{4}-\d{2}-\d{2}).*<\/time>','$1' | Read-HtmlTable -TableIndex 1 | ? {$_.Session -ne $null -and $_.Session -ne "Show Seats"}
+        if ($enrichSessions) {
+            $SessionData += Parse-SessionData -SessionTable $html
+        } else {
+            #parse the table, while removing the shown time, which might by things like "today" and replacing them with the actual date, which is included in the html source code
+            $foundSessions += $html -replace '<time datetime="(\d{4}-\d{2}-\d{2}).*<\/time>','$1' | Read-HtmlTable -TableIndex 1 | ? {$_.Session -ne $null -and $_.Session -ne "Show Seats"}
+        }
 
         #Set timeout to 0 (see above)
-        $browser.Manage().Timeouts().ImplicitWait = 0
+        $Global:Browser.Manage().Timeouts().ImplicitWait = 0
         try {
-            $browser.FindElement([OpenQA.Selenium.By]::LinkText("next >"))
+            $Global:Browser.FindElement([OpenQA.Selenium.By]::LinkText("next >"))
             $nextIsLink = $true
         } catch {
             $nextIsLink = $false
@@ -96,21 +123,23 @@ function PaizoParser {
     }
 
     #We are done parsing, so the browser can be closed
-    $browser.Quit()
+    $Global:Browser.Quit()
 
-    #The event is an array, which is bad for CSV - let us replace that with 'EventID - EventName'
-    $foundSessions | % {$_.Event = $_.Event -join " - "}
-    
-    #The points (reputation, etc.) are in multiple lines - bad for CSV. Changing that to a comma seperated list
-    $foundSessions | % {$_.Points = $_.Points -replace "(`r`n)+",", "}
-    
-    #There is some weird last column. We don't want that
-    $foundSessions = $foundSessions | Select Date, GM, Scenario, Points, Event, Session, Player, Character, Faction, "Prest. / Rep.", Notes
+    if ($EnrichSessions) {
+        $foundSessions = $SessionData
+    } else {
+        #The event is an array, which is bad for CSV - let us replace that with 'EventID - EventName'
+        $foundSessions | % {$_.Event = $_.Event -join " - "}
+        #The points (reputation, etc.) are in multiple lines - bad for CSV. Changing that to a comma seperated list
+        $foundSessions | % {$_.Points = $_.Points -replace "(`r`n)+",", "}
+        #There is some weird last column. We don't want that
+        $foundSessions = $foundSessions | Select Date, GM, Scenario, Points, Event, Session, Player, Character, Faction, "Prest. / Rep.", Notes
+    }
 
     #Show the results on screen
-    $characters | Out-GridView
+    $Global:Characters | Out-GridView
     $foundSessions | Out-GridView
-
+    
     #Get the correct delimiter for the current location
     $delim = (Get-Culture).TextInfo.ListSeparator
 
@@ -120,7 +149,7 @@ function PaizoParser {
     $SaveCharFileDialog.filter = "CSV (*.csv)| *.csv"
     $SaveCharFileDialog.FileName = "OrgPlayCharacters.csv"
     $SaveCharFileDialog.ShowDialog() | Out-Null
-    $characters | Export-Csv $SaveCharFileDialog.Filename -Delimiter $delim -NoTypeInformation -Force
+    $Global:Characters | Export-Csv $SaveCharFileDialog.Filename -Delimiter $delim -NoTypeInformation -Force
 
     #remember the path, so we can use it for the next dialog again
     $path = Split-Path $SaveCharFileDialog.FileName -Parent
@@ -132,6 +161,50 @@ function PaizoParser {
     $SaveSessionFileDialog.InitialDirectory = $path
     $SaveSessionFileDialog.ShowDialog() | Out-Null
     $foundSessions | Export-Csv $SaveSessionFileDialog.Filename -Delimiter $delim -NoTypeInformation -Force
+
+}
+
+function Parse-SessionData {
+    param(
+        [Parameter(mandatory=$true)]$SessionTable
+    )
+
+    $SessionData = @()
+
+    $html = $SessionTable
+    
+    #Get Raw Data, while removing the shown time, which might by things like "today" and replacing them with the actual date, which is included in the html source code
+    $RawData = $html -replace '<time datetime="(\d{4}-\d{2}-\d{2}).*<\/time>','$1' | Read-HtmlTable -TableIndex 1 | ? {$null -ne $_.Session -and $_.Session -ne "Show Seats"}
+
+
+    Foreach ($session in $Rawdata) {
+        #Extract the Session Link
+        $null = $html -match "<a href=""(.*)"" title="".*"">$([Regex]::Escape($session.Scenario))<\/a>"
+        $link = $Matches[1]
+
+        #Divide ID into PlayerID and CharacterID
+        $IDs = $session.Player -split "-"
+
+        $enrichedSession = [PSCustomObject]@{
+            Date = $session.Date
+            Scenario = $session.Scenario
+            System = if ($null -ne $session.Character) {$Characters | Where-Object {$_.Name -eq $session.Character}  | Select-Object -ExpandProperty System} else {$null}
+            Player = $IDs[0]
+            CharacterId = if ($IDs.length -gt 1) {$IDs[1]} elseif ($null -ne $session.Character) {$Characters | Where-Object {$_.Name -eq $session.Character}  | % {($_.CharacterID -split "-")[1]}} else {$null}
+            Character = $session.Character
+            Faction = $session.Faction
+            Reputation = $session.'Prest. / Rep.' -replace "\D",""
+            PlayerOrGM = if ($session.'Prest. / Rep.' -match "GM") {'GM'} else {'Player'}
+            GM = $session.GM
+            Event = $session.Event -join " - "
+            Session = $session.Session
+            StoreURL = $link
+        }
+        $SessionData += $enrichedSession
+    }
+
+    return $SessionData
+
 }
 
 function Load-NugetAssembly {
@@ -177,7 +250,7 @@ function Load-NugetAssembly {
 
 function Load-BrowserDrivers {
     param(
-        [Parameter(mandatory=$true)][ValidateSet('Chrome','Edge','Firefox')][string]$browser,
+        [Parameter(mandatory=$true)][ValidateSet('Chrome','Edge','Firefox')][string]$Global:Browser,
         [Parameter(mandatory=$false)][string]$driverversion = ''
     )
 
@@ -185,7 +258,7 @@ function Load-BrowserDrivers {
     Load-NugetAssembly 'https://www.nuget.org/api/v2/package/Newtonsoft.Json' -name 'Newtonsoft.Json.dll' -zipinternalpath 'lib/net45/Newtonsoft.Json.dll' -EA Stop    
     Load-NugetAssembly 'https://www.nuget.org/api/v2/package/Selenium.WebDriver/4.23.0' -name 'WebDriver.dll' -zipinternalpath 'lib/netstandard2.0/WebDriver.dll' -EA Stop    
     
-    switch($browser){
+    switch($Global:Browser){
         'Chrome' {      
             $chrome = Get-Package -Name 'Google Chrome' -EA SilentlyContinue | select -F 1      
             if (!$chrome){
@@ -215,7 +288,7 @@ function Load-BrowserDrivers {
 
 function Create-Browser {
     param(
-        [Parameter(mandatory=$true)][ValidateSet('Chrome','Edge','Firefox')][string]$browser,      
+        [Parameter(mandatory=$true)][ValidateSet('Chrome','Edge','Firefox')][string]$Global:Browser,      
         [Parameter(mandatory=$false)][bool]$HideCommandPrompt = $true,
         [Parameter(mandatory=$false)][object]$options = $null
     )
@@ -226,7 +299,7 @@ function Create-Browser {
     }else{
         $driverpath = $env:TEMP
     }
-    switch($browser){
+    switch($Global:Browser){
         'Chrome' {      
             # create driver service
             $dService = [OpenQA.Selenium.Chrome.ChromeDriverService]::CreateDefaultService($driverpath)
@@ -486,6 +559,14 @@ function Read-HtmlTable {
         }
         $Null = [System.Runtime.Interopservices.Marshal]::ReleaseComObject($Html)
     }
+}
+
+#Declare Variables that will be used by more than one function
+if (-not (Get-Variable Characters -Scope Global -ErrorAction Ignore)) {
+    New-Variable -Name Characters -Scope Global
+}
+if (-not (Get-Variable Characters -Scope Global -ErrorAction Ignore)) {
+    New-Variable -Name Browser -Scope Global
 }
 
 #Call the main function
