@@ -1,4 +1,4 @@
-##### Version 0.3 #####
+##### Version 0.3a #####
 DISCLAIMER 1: Paizo has a very generous Community Use Policy: https://paizo.com/licenses/communityuse - Unfortunately this policy only covers use of published material, etc. and so I am not 100% sure it applies here. I am not using or distributing any material published by them. I hope, the policy allows for automatic scraping of the website as well. If they don't want this and inform me of that, I will of course take down the code. I AM sure that I fulfill all requirements for the CUP, so unless the principal behind the scraper violates some other policy, this should be allowed to exist :)
 
 DISCLAIMER 2: The tool was written mostly for the german community and by a german, so comments are german and it uses semicolons as delimiters in the created csv-files
