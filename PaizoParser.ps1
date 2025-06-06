@@ -179,8 +179,11 @@ function Parse-SessionData {
 
     Foreach ($session in $Rawdata) {
         #Extract the Session Link
-        $null = $html -match "<a href=""(.*)"" title="".*"">$([Regex]::Escape($session.Scenario))<\/a>"
-        $link = $Matches[1]
+        if ($html -match "<a href=""(.*)"" title="".*"">$([Regex]::Escape($session.Scenario))<\/a>") {
+            $link = $Matches[1]
+        } else {
+            $link = $null
+        }
 
         #Divide ID into PlayerID and CharacterID
         $IDs = $session.Player -split "-"
