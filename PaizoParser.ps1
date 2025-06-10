@@ -66,6 +66,17 @@ function PaizoParser {
     #change reputation from multiline to comma seperated list
     $Global:Characters | % {$_.Reputation = $_.Reputation -replace "`r`n",", "}
 
+    #Add the current faction of the character to the array
+    Foreach ($character in $Global:Characters) {
+        #The faction is names as alt-text for the image preceding the character's name
+        if (($html -split "`r`n" | Select-String $character.Name -Context 1,0)[-1].Context.DisplayPreContext[0] -match 'alt="([^"]*)"') {
+            $faction = $Matches[1]
+        } else { #catch the case that a character has no faction set
+            $faction = $null
+        }
+        Add-Member -InputObject $character -Name "CurrentFaction" -Value $faction -MemberType NoteProperty
+    }
+
     #Navigate to the site which contains the session list
     $Global:Browser.Navigate().GotoURL($sessionsURL)
 
@@ -176,7 +187,6 @@ function Parse-SessionData {
     #Get Raw Data, while removing the shown time, which might by things like "today" and replacing them with the actual date, which is included in the html source code
     $RawData = $html -replace '<time datetime="(\d{4}-\d{2}-\d{2}).*<\/time>','$1' | Read-HtmlTable -TableIndex 1 | ? {$null -ne $_.Session -and $_.Session -ne "Show Seats"}
 
-
     Foreach ($session in $Rawdata) {
         #Extract the Session Link
         if ($html -match "<a href=""(.*)"" title="".*"">$([Regex]::Escape($session.Scenario))<\/a>") {
@@ -188,6 +198,35 @@ function Parse-SessionData {
         #Divide ID into PlayerID and CharacterID
         $IDs = $session.Player -split "-"
 
+        #Extract ACP
+        Remove-Variable ACP, ACPSystem -ErrorAction SilentlyContinue
+        $ACPLine = $session.Points | % {$_ -split "`r`n"} | ? {$_ -match "Achievement"}
+        if ($null -ne $ACPLine) {
+            [single]$ACP = ($ACPLine -split " ")[0]
+            Switch (($ACPLine -split "-")[1].Trim()) {
+                #a leading space is required here!
+                "SFS" {$ACPSystem = "SFS"}
+                "PFS(2ed)" {$ACPSystem = "PFS2"}
+                "SFS(2ed)" {$ACPSystem = "SFS2"}
+            }
+        }
+
+        #Extract GM Credits
+        Remove-Variable GMCred, GMCredSystem -ErrorAction SilentlyContinue
+        $GMCredLine = $session.Points | % {$_ -split "`r`n"} | ? {$_ -match "Credits"}
+        if ($null -ne $GMCredLine) {
+            [single]$GMCred = ($GMCredLine -split " ")[0]
+            Switch (($GMCredLine -split " ")[1]) {
+                "Starfinder" {$GMCredSystem = "SFS"}
+                "Pathfinder" {
+                    switch (($GMCredLine -split " ")[3]) {
+                        "(second" {$GMCredSystem = "PFS2"}
+                        "(first" {$GMCredSystem = "PFS"}
+                    }
+                }
+            }
+        }
+
         $enrichedSession = [PSCustomObject]@{
             Date = $session.Date
             Scenario = $session.Scenario
@@ -198,6 +237,10 @@ function Parse-SessionData {
             Faction = $session.Faction
             Reputation = $session.'Prest. / Rep.' -replace "\D",""
             PlayerOrGM = if ($session.'Prest. / Rep.' -match "GM") {'GM'} else {'Player'}
+            ACP = $ACP
+            ACPSystem = $ACPSystem
+            GMCredits = $GMCred
+            GMCreditsSystem = $GMCredSystem
             GM = $session.GM
             Event = $session.Event -join " - "
             Session = $session.Session
